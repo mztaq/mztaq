@@ -12,6 +12,7 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from html.parser import HTMLParser
 import json
+import os
 from pathlib import Path
 import re
 import urllib.request
@@ -28,9 +29,13 @@ RED = "#E36366"
 
 
 def request(url: str):
+    headers = {"User-Agent": "mztaq-ascii-profile/1.0", "Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN")
+    if token and url.startswith("https://api.github.com/"):
+        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "mztaq-ascii-profile/1.0", "Accept": "application/vnd.github+json"},
+        headers=headers,
     )
     with urllib.request.urlopen(req, timeout=35) as resp:
         return resp.read()

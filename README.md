@@ -2,42 +2,39 @@
 
 <img src="./assets/face.svg" width="500" alt="Mustaqim wearing glasses, drawn in animated ASCII characters" />
 
-<h1>Mustaqim.</h1>
+<img src="./assets/stats.svg" width="700" alt="Live contribution count and weekly GitHub activity" />
 
-<p>Student developer. I build web tools, automations, and systems I want to understand.</p>
-
-<p><a href="https://mustaqim.is-a.dev">Website</a> &nbsp; / &nbsp; <a href="https://picompiler.pages.dev">Pico</a> &nbsp; / &nbsp; <a href="https://github.com/mztaq">GitHub</a></p>
+<p><a href="https://mustaqim.is-a.dev">website</a> &nbsp;·&nbsp; <a href="https://picompiler.pages.dev">pico</a> &nbsp;·&nbsp; <a href="https://www.instagram.com/_mztaq/">instagram</a></p>
 
 </div>
 
 ### About
 
-Most of my projects start with a problem I want to solve or something I want to understand better. I'm currently developing **Pico** with my team, learning Rust, and running my own Linux services.
+I like building things that help me understand how systems work. Right now that's compilers, digital logic, automation, and the Linux services I run myself.
+
+Learning Rust. Usually writing Python. Outside code: physics, astronomy, and sim racing.
 
 ### Stack
 
-**Languages:** Python, Rust, JavaScript, HTML, CSS
+<samp>Python · TypeScript · Rust (learning) · HTML · CSS</samp>
 
-**Tools:** Linux, Docker, Git, Cloudflare, FastAPI, n8n
+<samp>Linux · Docker · Git · Cloudflare · FastAPI · n8n</samp>
 
 ### Projects
 
-| Project | What it does |
-| --- | --- |
-| [Pico](https://github.com/mztaq/pico) | Interactive computer science tools, including compilers, flowcharts, digital logic, and CPU simulation. |
-| [MetaStrip](https://github.com/mztaq/meta-strip) | Inspects and removes file metadata from images, videos, documents, and more. |
-| [Newton Competition](https://github.com/mztaq/newton-competition) | The website for our student competition project. |
+**[Pico](https://github.com/mztaq/pico)** · [try it](https://picompiler.pages.dev)  
+Pseudocode compiler, flowcharts, logic gates, and CPU simulations in the browser. Built with my team.
 
-### Activity
+**[MetaStrip](https://github.com/mztaq/meta-strip)**  
+Inspect and remove hidden metadata from files.
 
-<div align="center">
-  <img src="./assets/stats.svg" width="780" alt="Contributions and weekly GitHub activity" />
-</div>
+**[Newton Competition](https://github.com/mztaq/newton-competition)**  
+Site for our student competition project.
 
-### Programming languages
+### GitHub languages
 
 <div align="center">
   <img src="./assets/languages.svg" width="780" alt="Language usage across public GitHub repositories" />
 </div>
 
-<sub>The portrait is generated from ASCII characters. GitHub Actions refreshes the activity and language graphics daily.</sub>
+<sub>The portrait is ASCII text. Contribution activity and language usage refresh daily through GitHub Actions. Language percentages measure code in public repositories, not time spent coding.</sub>

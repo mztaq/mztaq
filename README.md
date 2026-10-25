@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/face.svg" width="520" alt="Mustaqim drawn in animated ASCII characters" />
+<img src="./assets/face.svg" width="500" alt="Mustaqim wearing glasses, drawn in animated ASCII characters" />
 
 <h1>Mustaqim.</h1>
 

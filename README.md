@@ -2,11 +2,11 @@
 
 <img src="./assets/face.svg" width="430" alt="Mustaqim, drawn in animated ASCII characters" />
 
-# Mustaqim.
+<h1>Mustaqim.</h1>
 
-Student developer. I build web tools, automations, and systems I want to understand.
+<p>Student developer. I build web tools, automations, and systems I want to understand.</p>
 
-[Website](https://mustaqim.is-a.dev) &nbsp; / &nbsp; [Pico](https://picompiler.pages.dev) &nbsp; / &nbsp; [GitHub](https://github.com/mztaq)
+<p><a href="https://mustaqim.is-a.dev">Website</a> &nbsp; / &nbsp; <a href="https://picompiler.pages.dev">Pico</a> &nbsp; / &nbsp; <a href="https://github.com/mztaq">GitHub</a></p>
 
 </div>
 

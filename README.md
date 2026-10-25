@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/face.svg" width="500" alt="Mustaqim wearing glasses, drawn in animated ASCII characters" />
+<img src="./assets/face.svg" width="400" alt="Mustaqim wearing glasses, drawn in animated ASCII characters" />
 
 <img src="./assets/stats.svg" width="700" alt="Live contribution count and weekly GitHub activity" />
 

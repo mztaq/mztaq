@@ -95,41 +95,58 @@ def fetch_languages():
 
 
 def make_portrait(photo: Path, out: Path):
-    from PIL import Image, ImageDraw, ImageFilter, ImageOps
+    from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 
-    photo_img = Image.open(photo).convert("RGB")
-    # Coordinates belong to the user's supplied 1152x1536 selfie.
-    scale_x = photo_img.width / 1152
-    scale_y = photo_img.height / 1536
-    box = tuple(round(v * (scale_x if i % 2 == 0 else scale_y)) for i, v in enumerate((290, 180, 945, 1020)))
-    cropped = photo_img.crop(box)
-    mask = Image.new("L", cropped.size, 0)
-    polygon = [
-        (110, 210), (150, 105), (240, 35), (365, 10), (495, 64),
-        (570, 150), (600, 265), (566, 443), (486, 685), (373, 820),
-        (220, 820), (95, 650), (40, 480), (25, 320),
-    ]
-    draw = ImageDraw.Draw(mask)
-    draw.polygon([(int(x * scale_x), int(y * scale_y)) for x, y in polygon], fill=255)
-    mask = mask.filter(ImageFilter.GaussianBlur(10 * scale_x))
+    photo_img = Image.open(photo).convert("RGBA")
+    if photo_img.width == 1500 and photo_img.height == 1740:
+        # New transparent portrait. Keep the hair, glasses, and complete jaw,
+        # but leave the collar and shoulders outside the composition.
+        cropped = photo_img.crop((340, 0, 1240, 1080))
+        cols, rows = 104, 74
+        mask = cropped.getchannel("A")
+        # The transparent photo also contains the shirt below the jaw.
+        # A soft lower mask ends the drawing at the chin/upper neck.
+        lower = Image.new("L", cropped.size, 0)
+        draw = ImageDraw.Draw(lower)
+        polygon = [
+            (0, 0), (900, 0), (900, 850), (820, 875),
+            (740, 920), (660, 967), (580, 1030), (470, 1055),
+            (375, 1040), (300, 1005), (215, 918), (130, 820), (0, 720),
+        ]
+        draw.polygon(polygon, fill=255)
+        lower = lower.filter(ImageFilter.GaussianBlur(13))
+        mask = ImageChops.darker(mask, lower)
+    else:
+        # For other image sizes, preserve any existing transparency.
+        # Opaque photographs should be cut out before generating ASCII.
+        cropped = photo_img
+        cols = 104
+        rows = round(cols * cropped.height / cropped.width * 0.59)
+        mask = cropped.getchannel("A")
 
-    gray = ImageOps.autocontrast(ImageOps.grayscale(cropped), cutoff=2)
-    gray = gray.filter(ImageFilter.UnsharpMask(radius=2.5, percent=190))
-    # Preserve thin glasses rims after reduction to character cells.
-    gray = Image.blend(gray, gray.filter(ImageFilter.MinFilter(7)), 0.36)
-    gray = gray.resize((96, 76), Image.Resampling.LANCZOS)
-    edges = gray.filter(ImageFilter.FIND_EDGES)
-    mask = mask.resize((96, 76), Image.Resampling.LANCZOS)
-    ramp = " .:-=+*#%@"
+    rgb = Image.new("RGB", cropped.size, "#efefef")
+    rgb.paste(cropped, mask=cropped.getchannel("A"))
+    gray = ImageOps.autocontrast(ImageOps.grayscale(rgb), cutoff=1)
+    gray = gray.filter(ImageFilter.UnsharpMask(radius=2.0, percent=175, threshold=2))
+    # Detect narrow glasses rims and eyebrows before reducing the photograph
+    # to text resolution, otherwise the frames disappear between cells.
+    fine_edges = gray.filter(ImageFilter.FIND_EDGES)
+    fine_edges = ImageOps.autocontrast(fine_edges, cutoff=3)
+    fine_edges = fine_edges.filter(ImageFilter.MaxFilter(3))
+    gray = gray.resize((cols, rows), Image.Resampling.LANCZOS)
+    edges = fine_edges.resize((cols, rows), Image.Resampling.LANCZOS)
+    mask = mask.resize((cols, rows), Image.Resampling.LANCZOS)
+    ramp = " .`':;!i+=*x%#@"
     lines = []
     for y in range(gray.height):
         line = ""
         for x in range(gray.width):
-            # Darker features become denser characters. Thin frames and facial
-            # edges get a slight extra weight, while the background stays blank.
-            darkness = (1 - gray.getpixel((x, y)) / 255) ** 1.25
+            # Keep midtone skin mostly open so eyes, frames, hair and beard
+            # read as distinct contours at GitHub's ~430px display width.
+            raw_darkness = 1 - gray.getpixel((x, y)) / 255
+            darkness = (max(0, (raw_darkness - 0.10) / 0.90)) ** 1.55
             edge_detail = edges.getpixel((x, y)) / 255
-            density = min(1, darkness * 0.86 + edge_detail * 0.20)
+            density = min(1, darkness * 0.82 + edge_detail * 0.28)
             density *= mask.getpixel((x, y)) / 255
             line += ramp[min(len(ramp) - 1, int(density * len(ramp)))]
         lines.append(line.rstrip())

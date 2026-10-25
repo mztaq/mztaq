@@ -18,6 +18,8 @@ jobs:
           python-version: '3.12'
       - name: Refresh public data and SVG
         run: python3 scripts/generate_profile.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Commit updated profile if changed
         run: |
           git config user.name "github-actions[bot]"

@@ -99,23 +99,29 @@ def make_portrait(photo: Path, out: Path):
 
     photo_img = Image.open(photo).convert("RGBA")
     if photo_img.width == 1500 and photo_img.height == 1740:
-        # New transparent portrait. Keep the hair, glasses, and complete jaw,
-        # but leave the collar and shoulders outside the composition.
-        cropped = photo_img.crop((340, 0, 1240, 1080))
-        cols, rows = 104, 74
+        # Keep the exact face proportions, with a small amount of upper
+        # shoulder and collar beneath the jaw instead of ending at the chin.
+        cropped = photo_img.crop((340, 0, 1240, 1210))
+        cols, rows = 104, 83
         mask = cropped.getchannel("A")
-        # The transparent photo also contains the shirt below the jaw.
-        # A soft lower mask ends the drawing at the chin/upper neck.
+        # Narrow the shoulders slightly and fade the lower edge to avoid a
+        # rectangular cut through the original shirt.
         lower = Image.new("L", cropped.size, 0)
         draw = ImageDraw.Draw(lower)
         polygon = [
-            (0, 0), (900, 0), (900, 850), (820, 875),
-            (740, 920), (660, 967), (580, 1030), (470, 1055),
-            (375, 1040), (300, 1005), (215, 918), (130, 820), (0, 720),
+            (0, 0), (900, 0), (900, 1020), (860, 1060),
+            (825, 1100), (790, 1150), (765, 1209),
+            (145, 1209), (105, 1150), (65, 1100), (0, 1050),
         ]
         draw.polygon(polygon, fill=255)
-        lower = lower.filter(ImageFilter.GaussianBlur(13))
+        lower = lower.filter(ImageFilter.GaussianBlur(16))
         mask = ImageChops.darker(mask, lower)
+        bottom_fade = Image.new("L", cropped.size, 255)
+        fade_draw = ImageDraw.Draw(bottom_fade)
+        for ypos in range(1130, cropped.height):
+            strength = round(255 * max(0, (cropped.height - ypos - 1) / 80))
+            fade_draw.line([(0, ypos), (cropped.width, ypos)], fill=strength)
+        mask = ImageChops.multiply(mask, bottom_fade)
         # The real frames are almost transparent. Trace their contours from
         # this source photo so the rims survive ASCII downsampling.
         rims = Image.new("L", cropped.size, 0)
@@ -136,6 +142,15 @@ def make_portrait(photo: Path, out: Path):
         rim_draw.line([(324, 481), (350, 456), (383, 449)], fill=245, width=7)
         rim_draw.line([(649, 413), (697, 436), (727, 467)], fill=170, width=6)
         rims = rims.filter(ImageFilter.GaussianBlur(3))
+        jaw = Image.new("L", cropped.size, 0)
+        jaw_draw = ImageDraw.Draw(jaw)
+        jaw_draw.line(
+            [(195, 737), (206, 799), (236, 863), (275, 924),
+             (329, 973), (391, 1003), (465, 1019), (523, 1008),
+             (593, 978), (649, 932), (697, 866)],
+            fill=170, width=7, joint="curve",
+        )
+        jaw = jaw.filter(ImageFilter.GaussianBlur(4))
     else:
         # For other image sizes, preserve any existing transparency.
         # Opaque photographs should be cut out before generating ASCII.
@@ -144,6 +159,7 @@ def make_portrait(photo: Path, out: Path):
         rows = round(cols * cropped.height / cropped.width * 0.59)
         mask = cropped.getchannel("A")
         rims = Image.new("L", cropped.size, 0)
+        jaw = Image.new("L", cropped.size, 0)
 
     rgb = Image.new("RGB", cropped.size, "#efefef")
     rgb.paste(cropped, mask=cropped.getchannel("A"))
@@ -158,6 +174,7 @@ def make_portrait(photo: Path, out: Path):
     edges = fine_edges.resize((cols, rows), Image.Resampling.LANCZOS)
     mask = mask.resize((cols, rows), Image.Resampling.LANCZOS)
     rims = rims.resize((cols, rows), Image.Resampling.LANCZOS)
+    jaw = jaw.resize((cols, rows), Image.Resampling.LANCZOS)
     ramp = " .`':;!i+=*x%#@"
     lines = []
     tones = []
@@ -171,13 +188,14 @@ def make_portrait(photo: Path, out: Path):
             darkness = (max(0, (raw_darkness - 0.10) / 0.90)) ** 1.55
             edge_detail = edges.getpixel((x, y)) / 255
             rim_detail = rims.getpixel((x, y)) / 255
-            density = min(1, darkness * 0.82 + edge_detail * 0.28 + rim_detail * 0.95)
+            jaw_detail = jaw.getpixel((x, y)) / 255
+            density = min(1, darkness * 0.82 + edge_detail * 0.28 + rim_detail * 0.95 + jaw_detail * 0.40)
             density *= mask.getpixel((x, y)) / 255
             glyph = ramp[min(len(ramp) - 1, int(density * len(ramp)))]
             line += glyph
             # Separate per-cell ink tones retain the photo's contrast even
             # when GitHub scales the characters down for mobile screens.
-            tone_line += str(min(7, round(min(1, darkness * 0.67 + edge_detail * 0.40 + rim_detail * 0.97) * 7))) if glyph != " " else "0"
+            tone_line += str(min(7, round(min(1, darkness * 0.67 + edge_detail * 0.40 + rim_detail * 0.97 + jaw_detail * 0.53) * 7))) if glyph != " " else "0"
         lines.append(line.rstrip())
         tones.append(tone_line[:len(lines[-1])])
     out.parent.mkdir(parents=True, exist_ok=True)

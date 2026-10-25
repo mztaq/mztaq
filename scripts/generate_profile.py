@@ -130,27 +130,30 @@ def make_portrait(photo: Path, out: Path):
             [(111, 553), (127, 493), (160, 466), (243, 450),
              (307, 458), (330, 479), (328, 566), (304, 615),
              (251, 636), (176, 648), (132, 627), (111, 553)],
-            fill=245, width=8, joint="curve",
+            fill=200, width=6, joint="curve",
         )
         rim_draw.line(
             [(380, 447), (402, 417), (477, 391), (589, 372),
              (629, 384), (650, 418), (646, 502), (621, 545),
              (560, 570), (473, 582), (424, 550), (391, 495),
              (380, 447)],
-            fill=245, width=8, joint="curve",
+            fill=200, width=6, joint="curve",
         )
-        rim_draw.line([(324, 481), (350, 456), (383, 449)], fill=245, width=7)
-        rim_draw.line([(649, 413), (697, 436), (727, 467)], fill=170, width=6)
-        rims = rims.filter(ImageFilter.GaussianBlur(3))
+        rim_draw.line([(324, 481), (350, 456), (383, 449)], fill=200, width=5)
+        rim_draw.line([(649, 413), (697, 436), (727, 467)], fill=145, width=5)
+        rims = rims.filter(ImageFilter.GaussianBlur(2.5))
         jaw = Image.new("L", cropped.size, 0)
         jaw_draw = ImageDraw.Draw(jaw)
+        # Emphasize the *sides* of the jaw only. Drawing across the chin made
+        # the lower beard read like an extra, artificial chin line.
         jaw_draw.line(
             [(195, 737), (206, 799), (236, 863), (275, 924),
-             (329, 973), (391, 1003), (465, 1019), (523, 1008),
-             (593, 978), (649, 932), (697, 866)],
-            fill=170, width=7, joint="curve",
+             (329, 973)],
+            fill=130, width=5, joint="curve",
         )
-        jaw = jaw.filter(ImageFilter.GaussianBlur(4))
+        jaw_draw.line([(593, 978), (649, 932), (697, 866)],
+                      fill=130, width=5, joint="curve")
+        jaw = jaw.filter(ImageFilter.GaussianBlur(3))
     else:
         # For other image sizes, preserve any existing transparency.
         # Opaque photographs should be cut out before generating ASCII.
@@ -178,24 +181,42 @@ def make_portrait(photo: Path, out: Path):
     ramp = " .`':;!i+=*x%#@"
     lines = []
     tones = []
+
+    def oval_weight(x, y, cx, cy, rx, ry):
+        r = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+        return max(0.0, 1.0 - r) ** 0.5
+
     for y in range(gray.height):
         line = ""
         tone_line = ""
         for x in range(gray.width):
             # Keep midtone skin mostly open so eyes, frames, hair and beard
-            # read as distinct contours at GitHub's ~430px display width.
+            # read as distinct contours at GitHub's ~500px display width.
             raw_darkness = 1 - gray.getpixel((x, y)) / 255
             darkness = (max(0, (raw_darkness - 0.10) / 0.90)) ** 1.55
             edge_detail = edges.getpixel((x, y)) / 255
             rim_detail = rims.getpixel((x, y)) / 255
             jaw_detail = jaw.getpixel((x, y)) / 255
-            density = min(1, darkness * 0.82 + edge_detail * 0.28 + rim_detail * 0.95 + jaw_detail * 0.40)
+            # Preserve the mouth and chin geometry while taking attention off
+            # patchy moustache/beard texture and the shadow under the chin.
+            facial_hair = max(
+                0.22 * oval_weight(x, y, 51, 48, 23, 6.0),
+                0.18 * oval_weight(x, y, 53, 60, 31, 15),
+                0.10 * oval_weight(x, y, 81, 55, 14, 17),
+            )
+            under_chin = 0.58 * oval_weight(x, y, 53, 72, 34, 8)
+            softness = 1 - max(facial_hair, under_chin)
+            density = min(1, darkness * 0.82 * softness
+                          + edge_detail * 0.28 * (1 - 0.55 * under_chin)
+                          + rim_detail * 0.62 + jaw_detail * 0.22)
             density *= mask.getpixel((x, y)) / 255
             glyph = ramp[min(len(ramp) - 1, int(density * len(ramp)))]
             line += glyph
             # Separate per-cell ink tones retain the photo's contrast even
             # when GitHub scales the characters down for mobile screens.
-            tone_line += str(min(7, round(min(1, darkness * 0.67 + edge_detail * 0.40 + rim_detail * 0.97 + jaw_detail * 0.53) * 7))) if glyph != " " else "0"
+            tone_line += str(min(7, round(min(1, darkness * 0.67 * softness
+                                              + edge_detail * 0.40 * (1 - 0.55 * under_chin)
+                                              + rim_detail * 0.64 + jaw_detail * 0.28) * 7))) if glyph != " " else "0"
         lines.append(line.rstrip())
         tones.append(tone_line[:len(lines[-1])])
     out.parent.mkdir(parents=True, exist_ok=True)

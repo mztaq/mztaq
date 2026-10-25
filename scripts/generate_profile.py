@@ -116,6 +116,26 @@ def make_portrait(photo: Path, out: Path):
         draw.polygon(polygon, fill=255)
         lower = lower.filter(ImageFilter.GaussianBlur(13))
         mask = ImageChops.darker(mask, lower)
+        # The real frames are almost transparent. Trace their contours from
+        # this source photo so the rims survive ASCII downsampling.
+        rims = Image.new("L", cropped.size, 0)
+        rim_draw = ImageDraw.Draw(rims)
+        rim_draw.line(
+            [(111, 553), (127, 493), (160, 466), (243, 450),
+             (307, 458), (330, 479), (328, 566), (304, 615),
+             (251, 636), (176, 648), (132, 627), (111, 553)],
+            fill=245, width=8, joint="curve",
+        )
+        rim_draw.line(
+            [(380, 447), (402, 417), (477, 391), (589, 372),
+             (629, 384), (650, 418), (646, 502), (621, 545),
+             (560, 570), (473, 582), (424, 550), (391, 495),
+             (380, 447)],
+            fill=245, width=8, joint="curve",
+        )
+        rim_draw.line([(324, 481), (350, 456), (383, 449)], fill=245, width=7)
+        rim_draw.line([(649, 413), (697, 436), (727, 467)], fill=170, width=6)
+        rims = rims.filter(ImageFilter.GaussianBlur(3))
     else:
         # For other image sizes, preserve any existing transparency.
         # Opaque photographs should be cut out before generating ASCII.
@@ -123,6 +143,7 @@ def make_portrait(photo: Path, out: Path):
         cols = 104
         rows = round(cols * cropped.height / cropped.width * 0.59)
         mask = cropped.getchannel("A")
+        rims = Image.new("L", cropped.size, 0)
 
     rgb = Image.new("RGB", cropped.size, "#efefef")
     rgb.paste(cropped, mask=cropped.getchannel("A"))
@@ -136,22 +157,32 @@ def make_portrait(photo: Path, out: Path):
     gray = gray.resize((cols, rows), Image.Resampling.LANCZOS)
     edges = fine_edges.resize((cols, rows), Image.Resampling.LANCZOS)
     mask = mask.resize((cols, rows), Image.Resampling.LANCZOS)
+    rims = rims.resize((cols, rows), Image.Resampling.LANCZOS)
     ramp = " .`':;!i+=*x%#@"
     lines = []
+    tones = []
     for y in range(gray.height):
         line = ""
+        tone_line = ""
         for x in range(gray.width):
             # Keep midtone skin mostly open so eyes, frames, hair and beard
             # read as distinct contours at GitHub's ~430px display width.
             raw_darkness = 1 - gray.getpixel((x, y)) / 255
             darkness = (max(0, (raw_darkness - 0.10) / 0.90)) ** 1.55
             edge_detail = edges.getpixel((x, y)) / 255
-            density = min(1, darkness * 0.82 + edge_detail * 0.28)
+            rim_detail = rims.getpixel((x, y)) / 255
+            density = min(1, darkness * 0.82 + edge_detail * 0.28 + rim_detail * 0.95)
             density *= mask.getpixel((x, y)) / 255
-            line += ramp[min(len(ramp) - 1, int(density * len(ramp)))]
+            glyph = ramp[min(len(ramp) - 1, int(density * len(ramp)))]
+            line += glyph
+            # Separate per-cell ink tones retain the photo's contrast even
+            # when GitHub scales the characters down for mobile screens.
+            tone_line += str(min(7, round(min(1, darkness * 0.67 + edge_detail * 0.40 + rim_detail * 0.97) * 7))) if glyph != " " else "0"
         lines.append(line.rstrip())
+        tones.append(tone_line[:len(lines[-1])])
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out.with_name("portrait-tones.txt").write_text("\n".join(tones) + "\n", encoding="utf-8")
 
 
 def calendar_weeks(days):
@@ -169,14 +200,20 @@ def svg_shell(width, height, title, inner):
             + inner + '</svg>\n')
 
 
-def render_face(lines, static=False):
+def render_face(lines, tones=None, static=False, dark_preview=False):
     """Only the portrait types in. The rest of the README stays regular Markdown."""
     char_width, line_height, pad = 5.7, 9.7, 15
     width = round(max(map(len, lines)) * char_width + 2 * pad)
     height = round(len(lines) * line_height + 2 * pad)
-    parts = [
-        '<style>.ink{fill:#656d76}@media(prefers-color-scheme:dark){.ink{fill:#c9d1d9}}</style>'
-    ]
+    light = ("#b7bdc5", "#a6aeb8", "#939eaa", "#7e8b98", "#687786", "#536473", "#3d5060", "#253b4d")
+    dark = ("#3d4651", "#586471", "#73808e", "#8d9caa", "#a7b6c4", "#bfccd8", "#d8e2e9", "#f0f5f8")
+    preview_or_light = dark if dark_preview else light
+    styles = [f'.t{i}{{fill:{color}}}' for i, color in enumerate(preview_or_light)]
+    if not dark_preview:
+        styles.append('@media(prefers-color-scheme:dark){' + ''.join(f'.t{i}{{fill:{color}}}' for i,color in enumerate(dark)) + '}')
+    parts = ['<style>' + ''.join(styles) + '</style>']
+    if dark_preview:
+        parts.append(f'<rect width="{width}" height="{height}" fill="{BG}"/>')
     for i, line in enumerate(lines):
         ypos = pad + i * line_height
         length = max(1, len(line) * char_width)
@@ -185,10 +222,17 @@ def render_face(lines, static=False):
             f'<clipPath id="row{i}"><rect x="{pad}" y="{ypos:.1f}" width="{length if static else 0:.1f}" height="{line_height:.1f}">'
             + ('' if static else reveal) + '</rect></clipPath>'
         )
+        tone_line = tones[i] if tones and i < len(tones) else '5' * len(line)
+        spans = []
+        start = 0
+        for j in range(1, len(line) + 1):
+            if j == len(line) or tone_line[j] != tone_line[start]:
+                spans.append(f'<tspan class="t{tone_line[start]}">{escape(line[start:j])}</tspan>')
+                start = j
         parts.append(
-            f'<text class="ink" x="{pad}" y="{ypos + line_height * .79:.1f}" '
+            f'<text x="{pad}" y="{ypos + line_height * .79:.1f}" '
             f'font-family="Courier New,monospace" font-size="9.5" xml:space="preserve" '
-            f'clip-path="url(#row{i})">{escape(line)}</text>'
+            f'clip-path="url(#row{i})">{"".join(spans)}</text>'
         )
     return svg_shell(width, height, 'Animated ASCII portrait of Mustaqim', ''.join(parts))
 
@@ -241,6 +285,7 @@ def main():
     parser.add_argument("--portrait-photo", type=Path)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--static-preview", action="store_true")
+    parser.add_argument("--dark-preview", action="store_true")
     args = parser.parse_args()
     ASSETS.mkdir(parents=True, exist_ok=True)
     if args.portrait_photo:
@@ -260,8 +305,11 @@ def main():
             data = json.loads(data_file.read_text(encoding="utf-8"))
 
     portrait = (ASSETS / "portrait.txt").read_text(encoding="utf-8").splitlines()
+    tone_file = ASSETS / "portrait-tones.txt"
+    tones = tone_file.read_text(encoding="utf-8").splitlines() if tone_file.exists() else None
     target = ASSETS / ("face-preview.svg" if args.static_preview else "face.svg")
-    target.write_text(render_face(portrait, static=args.static_preview), encoding="utf-8")
+    target.write_text(render_face(portrait, tones=tones, static=args.static_preview,
+                                  dark_preview=args.dark_preview), encoding="utf-8")
     if not args.static_preview:
         (ASSETS / "stats.svg").write_text(render_stats(data["days"]), encoding="utf-8")
         (ASSETS / "languages.svg").write_text(render_languages(data["languages"]), encoding="utf-8")

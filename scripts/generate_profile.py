@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a GitHub-safe, animated ASCII profile from public data.
+"""Generate an animated ASCII portrait and ordinary GitHub stats SVGs.
 
 The source photograph is used locally once to make assets/portrait.txt. It is
 never committed to GitHub. Subsequent runs only need Python's stdlib.
@@ -113,131 +113,110 @@ def make_portrait(photo: Path, out: Path):
     draw.polygon([(int(x * scale_x), int(y * scale_y)) for x, y in polygon], fill=255)
     mask = mask.filter(ImageFilter.GaussianBlur(10 * scale_x))
 
-    gray = ImageOps.autocontrast(ImageOps.grayscale(cropped), cutoff=3)
-    gray = gray.filter(ImageFilter.UnsharpMask(radius=2, percent=160))
-    gray = gray.resize((82, 70), Image.Resampling.LANCZOS)
-    mask = mask.resize((82, 70), Image.Resampling.LANCZOS)
+    gray = ImageOps.autocontrast(ImageOps.grayscale(cropped), cutoff=2)
+    gray = gray.filter(ImageFilter.UnsharpMask(radius=2.5, percent=190))
+    # Preserve thin glasses rims after reduction to character cells.
+    gray = Image.blend(gray, gray.filter(ImageFilter.MinFilter(7)), 0.36)
+    gray = gray.resize((96, 76), Image.Resampling.LANCZOS)
+    edges = gray.filter(ImageFilter.FIND_EDGES)
+    mask = mask.resize((96, 76), Image.Resampling.LANCZOS)
     ramp = " .:-=+*#%@"
     lines = []
     for y in range(gray.height):
         line = ""
         for x in range(gray.width):
-            brightness = gray.getpixel((x, y)) * mask.getpixel((x, y)) / 255
-            line += ramp[min(len(ramp) - 1, int(brightness / 256 * len(ramp)))]
+            # Darker features become denser characters. Thin frames and facial
+            # edges get a slight extra weight, while the background stays blank.
+            darkness = (1 - gray.getpixel((x, y)) / 255) ** 1.25
+            edge_detail = edges.getpixel((x, y)) / 255
+            density = min(1, darkness * 0.86 + edge_detail * 0.20)
+            density *= mask.getpixel((x, y)) / 255
+            line += ramp[min(len(ramp) - 1, int(density * len(ramp)))]
         lines.append(line.rstrip())
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def visual_lines(days, langs):
-    total = sum(x["count"] for x in days.values())
-    chronological = sorted(days)
-    first = date.fromisoformat(chronological[0])
-    # GitHub's public calendar starts on Sunday.
-    week_start = first - timedelta(days=(first.weekday() + 1) % 7)
-    weeks = []
-    for w in range(53):
-        start = week_start + timedelta(days=7 * w)
-        weeks.append([days.get((start + timedelta(days=d)).isoformat()) for d in range(7)])
-    levels = ".:+#@"
-    heatmap = []
-    for weekday in range(7):
-        letters = "".join(levels[(week[weekday] or {"level": 0})["level"]] for week in weeks)
-        heatmap.append("  " + "SMTWTFS"[weekday] + "  " + letters)
-
-    weekly = [sum((item or {"count": 0})["count"] for item in week) for week in weeks]
-    peak = max(weekly, default=1) or 1
-    trend_ramp = "._-:=+*#%@"
-    spark = "".join(trend_ramp[round(w / peak * (len(trend_ramp) - 1))] for w in weekly)
-    lang_total = sum(langs.values()) or 1
-    language_lines = []
-    for language, nbytes in sorted(langs.items(), key=lambda item: -item[1])[:6]:
-        ratio = nbytes / lang_total
-        length = round(20 * ratio)
-        language_lines.append(f"  {language[:12]:<12} [{'#' * length}{'.' * (20 - length)}] {ratio * 100:5.1f}%")
-    if not language_lines:
-        language_lines = ["  No public language data yet."]
-
-    content = []
-    def add(txt, color=FG, fontsize=17, gap=28):
-        content.append((txt, color, fontsize, gap))
-
-    add("MUSTAQIM.", FG, 32, 44)
-    add("student developer  /  automation  /  systems", MUTED, 16, 44)
-    add(f"{total:,} contributions in the last year", RED, 25, 36)
-    add("  " + spark, FG, 18, 48)
-    add("$ whoami", RED, 18, 34)
-    add("  I build things I want to use, then keep improving them.")
-    add("  Based in Qatar. Roots in Bangladesh.")
-    add("  Currently working on Pico with my team.", FG, 17, 48)
-
-    add("$ stack --list", RED, 18, 34)
-    add("  Python  Rust  JavaScript  HTML  CSS", FG)
-    add("  Linux  Docker  Cloudflare  n8n  FastAPI  Git", FG, 17, 48)
-
-    add("$ ls projects/", RED, 18, 34)
-    add("  pico/               interactive computer science tools")
-    add("  meta-strip/         file metadata inspector and cleaner")
-    add("  newton-competition/ student competition website", FG, 17, 48)
-
-    add("$ languages --public-repos", RED, 18, 36)
-    for language_line in language_lines:
-        add(language_line, FG, 15, 26)
-    content[-1] = (*content[-1][:3], 46)
-
-    add("$ contributions --last-year", RED, 18, 34)
-    for line in heatmap:
-        add(line, MUTED if line.strip().startswith("S") else FG, 14, 23)
-    add("  low . : + # @ high", MUTED, 14, 44)
-    add("$ updated daily from public GitHub data", MUTED, 15, 30)
-    return content
+def calendar_weeks(days):
+    first = date.fromisoformat(min(days))
+    start = first - timedelta(days=(first.weekday() + 1) % 7)
+    return [
+        [days.get((start + timedelta(days=week * 7 + weekday)).isoformat()) for weekday in range(7)]
+        for week in range(53)
+    ]
 
 
-def render_svg(portrait, content, static=False):
-    width = 850
-    y = 58
-    lines = []
-    count = 0
+def svg_shell(width, height, title, inner):
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+            f'viewBox="0 0 {width} {height}"><title>{escape(title)}</title>'
+            + inner + '</svg>\n')
 
-    def typed(txt, x, ypos, font_size, color, begin, duration, char_width=0.62):
-        nonlocal count
-        count += 1
-        rect_width = max(1, len(txt) * font_size * char_width + 12)
-        clip = f"reveal{count}"
-        return (
-            f'<clipPath id="{clip}"><rect x="{x}" y="{ypos-font_size*1.2:.1f}" width="{rect_width if static else 0:.1f}" height="{font_size*1.65:.1f}">'
-            + ('' if static else f'<animate attributeName="width" from="0" to="{rect_width:.1f}" begin="{begin:.2f}s" dur="{duration:.2f}s" fill="freeze"/>')
-            + '</rect></clipPath>'
-            f'<text x="{x}" y="{ypos:.1f}" font-family="Courier New, monospace" font-size="{font_size}" '
-            f'fill="{color}" xml:space="preserve" clip-path="url(#{clip})">{escape(txt)}</text>'
+
+def render_face(lines, static=False):
+    """Only the portrait types in. The rest of the README stays regular Markdown."""
+    char_width, line_height, pad = 5.7, 9.7, 15
+    width = round(max(map(len, lines)) * char_width + 2 * pad)
+    height = round(len(lines) * line_height + 2 * pad)
+    parts = [
+        '<style>.ink{fill:#656d76}@media(prefers-color-scheme:dark){.ink{fill:#c9d1d9}}</style>'
+    ]
+    for i, line in enumerate(lines):
+        ypos = pad + i * line_height
+        length = max(1, len(line) * char_width)
+        reveal = f'<animate attributeName="width" from="0" to="{length:.1f}" begin="{i * .068:.2f}s" dur=".32s" fill="freeze"/>'
+        parts.append(
+            f'<clipPath id="row{i}"><rect x="{pad}" y="{ypos:.1f}" width="{length if static else 0:.1f}" height="{line_height:.1f}">'
+            + ('' if static else reveal) + '</rect></clipPath>'
         )
+        parts.append(
+            f'<text class="ink" x="{pad}" y="{ypos + line_height * .79:.1f}" '
+            f'font-family="Courier New,monospace" font-size="9.5" xml:space="preserve" '
+            f'clip-path="url(#row{i})">{escape(line)}</text>'
+        )
+    return svg_shell(width, height, 'Animated ASCII portrait of Mustaqim', ''.join(parts))
 
-    for i, portrait_line in enumerate(portrait):
-        lines.append(typed(portrait_line, 174, y + i * 8.3, 10.4, FG, i * 0.045, 0.42))
-    y += len(portrait) * 8.3 + 42
-    clock = len(portrait) * 0.045 + 0.4
-    for txt, color, fontsize, gap in content:
-        duration = min(1.6, max(0.28, len(txt) * 0.013))
-        x = 76 if fontsize > 20 or txt.startswith("$") else 92
-        lines.append(typed(txt, x, y, fontsize, color, clock, duration))
-        y += gap
-        clock += max(0.26, duration * 0.68)
 
-    height = round(y + 32)
-    border = f'<rect x="1" y="1" width="{width-2}" height="{height-2}" rx="12" fill="{BG}" stroke="#29323D" stroke-width="2"/>'
-    bar = f'<text x="76" y="34" fill="{MUTED}" font-family="Courier New,monospace" font-size="13">mztaq@github  ~  ./profile</text>'
-    cursor = (
-        '' if static else
-        f'<rect x="{76 + len(content[-1][0]) * 9.1:.1f}" y="{y-49:.1f}" width="9" height="17" fill="{RED}" opacity="0">'
-        f'<animate attributeName="opacity" values="0;1;0;1" keyTimes="0;0.01;0.51;1" dur="1s" begin="{clock:.2f}s" repeatCount="indefinite"/>'
-        '</rect>'
-    )
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n'
-        f'<title>Mustaqim — animated ASCII GitHub profile</title><desc>Portrait and profile sections typing in sequence. '
-        'Stats generated from public repositories and contribution activity.</desc>\n'
-        f'{border}{bar}\n' + "\n".join(lines) + cursor + "\n</svg>\n"
-    )
+def render_stats(days):
+    weeks = calendar_weeks(days)
+    counts = [sum((d or {"count": 0})["count"] for d in w) for w in weeks]
+    peak = max(counts) or 1
+    total = sum(d["count"] for d in days.values())
+    x0, x1, y0, y1 = 34, 746, 178, 87
+    points = [(x0 + i * (x1 - x0) / (len(counts) - 1), y0 - val / peak * (y0-y1)) for i, val in enumerate(counts)]
+    line = ' '.join(f'{x:.1f},{y:.1f}' for x, y in points)
+    area = f'{x0},{y0} {line} {x1},{y0}'
+    parts = [
+        f'<rect x="1" y="1" width="778" height="218" rx="8" fill="{BG}" stroke="#2B313A"/>',
+        f'<text x="34" y="59" font-size="36" font-family="monospace" fill="{FG}">{total:,}</text>',
+        f'<text x="150" y="56" font-size="13" font-family="monospace" fill="{MUTED}">contributions in the last year</text>',
+        f'<line x1="34" y1="178" x2="746" y2="178" stroke="#36404A"/>',
+        f'<polygon points="{area}" fill="{RED}" opacity="0.13"/>',
+        f'<polyline points="{line}" fill="none" stroke="{RED}" stroke-width="2.2" stroke-linejoin="round"/>',
+        f'<text x="34" y="201" font-size="11" font-family="monospace" fill="{MUTED}">52-week activity</text>',
+        f'<text x="746" y="201" text-anchor="end" font-size="11" font-family="monospace" fill="{MUTED}">updated daily</text>',
+    ]
+    return svg_shell(780, 220, 'GitHub contribution activity', ''.join(parts))
+
+
+def render_languages(langs):
+    ranked = sorted(langs.items(), key=lambda item: (-item[1], item[0]))[:6]
+    total = sum(langs.values()) or 1
+    height = 86 + max(1, len(ranked)) * 36
+    parts = [
+        f'<rect x="1" y="1" width="778" height="{height-2}" rx="8" fill="{BG}" stroke="#2B313A"/>',
+        f'<text x="34" y="36" font-family="monospace" font-size="17" fill="{FG}">Languages in public repositories</text>',
+        f'<text x="34" y="56" font-family="monospace" font-size="11" fill="{MUTED}">Measured by GitHub language bytes, not coding hours</text>',
+    ]
+    for i, (name, nbytes) in enumerate(ranked):
+        ypos = 80 + i * 36
+        ratio = nbytes / total
+        parts.extend([
+            f'<text x="34" y="{ypos+13}" font-family="monospace" font-size="13" fill="{FG}">{escape(name)}</text>',
+            f'<rect x="198" y="{ypos+1}" width="492" height="13" fill="#29313A" rx="2"/>',
+            f'<rect x="198" y="{ypos+1}" width="{max(1,492*ratio):.1f}" height="13" fill="{RED}" rx="2"/>',
+            f'<text x="746" y="{ypos+13}" text-anchor="end" font-family="monospace" font-size="13" fill="{FG}">{ratio*100:.1f}%</text>',
+        ])
+    return svg_shell(780, height, 'Programming language usage', ''.join(parts))
 
 
 def main():
@@ -264,10 +243,12 @@ def main():
             data = json.loads(data_file.read_text(encoding="utf-8"))
 
     portrait = (ASSETS / "portrait.txt").read_text(encoding="utf-8").splitlines()
-    svg = render_svg(portrait, visual_lines(data["days"], data["languages"]), static=args.static_preview)
-    target = ASSETS / ("profile-preview.svg" if args.static_preview else "profile.svg")
-    target.write_text(svg, encoding="utf-8")
-    print(f"Created {target.relative_to(ROOT)} ({len(svg):,} characters)")
+    target = ASSETS / ("face-preview.svg" if args.static_preview else "face.svg")
+    target.write_text(render_face(portrait, static=args.static_preview), encoding="utf-8")
+    if not args.static_preview:
+        (ASSETS / "stats.svg").write_text(render_stats(data["days"]), encoding="utf-8")
+        (ASSETS / "languages.svg").write_text(render_languages(data["languages"]), encoding="utf-8")
+    print(f"Created {target.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

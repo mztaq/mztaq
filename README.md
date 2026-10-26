@@ -12,7 +12,7 @@
 
 I like building things that help me understand how systems work. Right now that's compilers, digital logic, automation, and the Linux services I run myself.
 
-Learning Rust. Usually writing Python. Outside code: physics, astronomy, and sim racing.
+Learning Rust. Usually writing Python.
 
 ### Stack
 
@@ -28,13 +28,8 @@ Pseudocode compiler, flowcharts, logic gates, and CPU simulations in the browser
 **[MetaStrip](https://github.com/mztaq/meta-strip)**  
 Inspect and remove hidden metadata from files.
 
-**[Newton Competition](https://github.com/mztaq/newton-competition)**  
-Site for our student competition project.
-
 ### GitHub languages
 
 <div align="center">
   <img src="./assets/languages.svg" width="780" alt="Language usage across public GitHub repositories" />
 </div>
-
-<sub>The portrait is ASCII text. Contribution activity and language usage refresh daily through GitHub Actions. Language percentages measure code in public repositories, not time spent coding.</sub>

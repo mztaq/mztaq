@@ -98,7 +98,60 @@ def make_portrait(photo: Path, out: Path):
     from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 
     photo_img = Image.open(photo).convert("RGBA")
-    if photo_img.width == 1500 and photo_img.height == 1740:
+    if photo_img.width == 1272 and photo_img.height == 1503:
+        # New transparent selfie: keep the natural tilt and both ears, with
+        # only the upper shoulders visible. These coordinates belong to the
+        # actual photo, not the previous portrait's hand-drawn landmarks.
+        cropped = photo_img.crop((260, 0, 1150, 1120))
+        cols, rows = 108, 80
+        mask = cropped.getchannel("A")
+        # Keep the shoulders near the collar, rather than a full-width black
+        # shirt that would appear as a rectangular block under the face.
+        shoulder_limit = Image.new("L", cropped.size, 0)
+        shoulder_draw = ImageDraw.Draw(shoulder_limit)
+        shoulder_draw.polygon(
+            [(0, 0), (890, 0), (890, 900), (858, 951),
+             (796, 1000), (695, 1070), (615, 1119),
+             (280, 1119), (197, 1070), (103, 1000),
+             (30, 951), (0, 916)],
+            fill=255,
+        )
+        shoulder_limit = shoulder_limit.filter(ImageFilter.GaussianBlur(18))
+        mask = ImageChops.darker(mask, shoulder_limit)
+        bottom_fade = Image.new("L", cropped.size, 255)
+        fade_draw = ImageDraw.Draw(bottom_fade)
+        for ypos in range(985, cropped.height):
+            strength = round(255 * max(0, (cropped.height - ypos - 1) / 135))
+            fade_draw.line([(0, ypos), (cropped.width, ypos)], fill=strength)
+        mask = ImageChops.multiply(mask, bottom_fade)
+
+        # Trace the photo's thin metal frames at source resolution. At 400px
+        # README width, the real silver rims otherwise vanish on reduction.
+        rims = Image.new("L", cropped.size, 0)
+        rim_draw = ImageDraw.Draw(rims)
+        rim_draw.line(
+            [(93, 620), (99, 575), (124, 543), (169, 527),
+             (230, 516), (283, 520), (309, 541), (321, 576),
+             (317, 647), (292, 692), (242, 712), (185, 713),
+             (133, 694), (103, 660), (93, 620)],
+            fill=185, width=5, joint="curve",
+        )
+        rim_draw.line(
+            [(365, 491), (388, 464), (443, 442), (503, 428),
+             (565, 426), (614, 445), (627, 481), (630, 535),
+             (613, 587), (575, 611), (517, 628), (451, 630),
+             (403, 616), (377, 580), (365, 528), (365, 491)],
+            fill=185, width=5, joint="curve",
+        )
+        rim_draw.line([(312, 549), (332, 542), (352, 527), (371, 511)],
+                      fill=150, width=4, joint="curve")
+        rim_draw.line([(627, 459), (655, 447), (689, 453)],
+                      fill=135, width=4, joint="curve")
+        rims = rims.filter(ImageFilter.GaussianBlur(1.4))
+        # Preserve the actual cheek and chin silhouette; unlike the older
+        # image, this photo does not need a synthetic jaw outline.
+        jaw = Image.new("L", cropped.size, 0)
+    elif photo_img.width == 1500 and photo_img.height == 1740:
         # Keep the exact face proportions, with a small amount of upper
         # shoulder and collar beneath the jaw instead of ending at the chin.
         cropped = photo_img.crop((340, 0, 1240, 1210))
@@ -199,24 +252,34 @@ def make_portrait(photo: Path, out: Path):
             jaw_detail = jaw.getpixel((x, y)) / 255
             # Preserve the mouth and chin geometry while taking attention off
             # patchy moustache/beard texture and the shadow under the chin.
-            facial_hair = max(
-                0.22 * oval_weight(x, y, 51, 48, 23, 6.0),
-                0.18 * oval_weight(x, y, 53, 60, 31, 15),
-                0.10 * oval_weight(x, y, 81, 55, 14, 17),
-            )
-            under_chin = 0.58 * oval_weight(x, y, 53, 72, 34, 8)
+            if photo_img.size == (1272, 1503):
+                # Slightly quiet the beard texture without erasing its real
+                # contours or exaggerating the underside of the chin.
+                facial_hair = max(
+                    0.12 * oval_weight(x, y, 54, 56, 24, 7),
+                    0.11 * oval_weight(x, y, 55, 68, 30, 13),
+                )
+                under_chin = 0.34 * oval_weight(x, y, 55, 75, 27, 7)
+            else:
+                facial_hair = max(
+                    0.22 * oval_weight(x, y, 51, 48, 23, 6.0),
+                    0.18 * oval_weight(x, y, 53, 60, 31, 15),
+                    0.10 * oval_weight(x, y, 81, 55, 14, 17),
+                )
+                under_chin = 0.58 * oval_weight(x, y, 53, 72, 34, 8)
             softness = 1 - max(facial_hair, under_chin)
-            density = min(1, darkness * 0.82 * softness
-                          + edge_detail * 0.28 * (1 - 0.55 * under_chin)
-                          + rim_detail * 0.62 + jaw_detail * 0.22)
+            new_photo = photo_img.size == (1272, 1503)
+            density = min(1, darkness * (0.92 if new_photo else 0.82) * softness
+                          + edge_detail * (0.42 if new_photo else 0.28) * (1 - 0.55 * under_chin)
+                          + rim_detail * (0.81 if new_photo else 0.62) + jaw_detail * 0.22)
             density *= mask.getpixel((x, y)) / 255
             glyph = ramp[min(len(ramp) - 1, int(density * len(ramp)))]
             line += glyph
             # Separate per-cell ink tones retain the photo's contrast even
             # when GitHub scales the characters down for mobile screens.
-            tone_line += str(min(7, round(min(1, darkness * 0.67 * softness
-                                              + edge_detail * 0.40 * (1 - 0.55 * under_chin)
-                                              + rim_detail * 0.64 + jaw_detail * 0.28) * 7))) if glyph != " " else "0"
+            tone_line += str(min(7, round(min(1, darkness * 0.76 * softness
+                                              + edge_detail * (0.58 if new_photo else 0.40) * (1 - 0.55 * under_chin)
+                                              + rim_detail * (0.82 if new_photo else 0.64) + jaw_detail * 0.28) * 7))) if glyph != " " else "0"
         lines.append(line.rstrip())
         tones.append(tone_line[:len(lines[-1])])
     out.parent.mkdir(parents=True, exist_ok=True)
